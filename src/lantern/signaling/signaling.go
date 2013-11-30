@@ -1,5 +1,5 @@
 /*
-Encapsulates the signaling channel for lantern.
+Package signaling encapsulates the signaling channel for lantern.
 
 Lantern nodes are organized into a tree which is responsible for passing
 presence notifications to the appropriate parties.  The tree consists of two
@@ -93,8 +93,9 @@ Nodes trust each other based on a scheme that combines PKI and Mozilla Persona.
   Mozilla Persona identity assertion which the parent is able to verify with
   Mozilla Persona.  After the initial authentication of the child, the parent
   issues a certificate to the child that is tied to the child's email address.
-  On subsequent requests to the parent, the child is identified by this
-  certificate.
+  In particular, the CN of the certificate contains the child's email address,
+  encrypted by the parent so that only the parent can read it.  On subsequent
+  requests to the parent, the child is identified by this certificate.
 - Master nodes maintain certificate revocation lists that allow them to revoke
   any certificates that they have previously issued, both to other master nodes
   and to child nodes.
@@ -112,7 +113,6 @@ endpoint.  All messaging, both for master and user nodes, uses this websocket
 channel.
 
 Messages are expected to be small (no more than 1KB).
-
 */
 package signaling
 

@@ -1,4 +1,30 @@
-// Stores keys and certificates, backed by pem encoded files on the file system.
+/*
+Package keys encapsulates the key and certificate management for this lantern
+instance, including generating them, saving them to disk, using them to
+encrypt/decrypt data and using them to trust peers via TLS connections.
+
+Package keys also includes functionality to handle remote certificate generation
+whereby parent nodes generate certificates for their children, whom they
+initially authenticate using Mozilla Persona.
+
+Keys and certificates are stored in [config.ConfigDir]/keys, with the following
+directory structure:
+
+own/
+    privatekey.pem (our private key)
+	certificate.pem (our certificate)
+trusted/
+	parentcert.pem (our parent's certificate)
+
+Any and all of these can be prepopulated with pregenerated values, which keys
+will happily use.  For child nodes, parentcert.pem has to be prepopulated,
+meaning that that part of the key exchange has to happen out of band (for
+example via email).  privatekey.pem and certificate.pem will be generated
+as necessary.
+
+TODO: handle certificate expirations to make sure we rotate certificates
+frequently.
+*/
 package keys
 
 import (
@@ -11,7 +37,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"lantern/config"
-	"lantern/persona"
 	"log"
 	"math/big"
 	"net"
@@ -21,22 +46,20 @@ import (
 	"time"
 )
 
-const PEM_HEADER_PRIVATE_KEY = "RSA PRIVATE KEY"
-const PEM_HEADER_PUBLIC_KEY = "RSA PRIVATE KEY"
-const PEM_HEADER_CERTIFICATE = "CERTIFICATE"
-const KEY_BITS = 2048
-const ONE_WEEK = 7 * 24 * time.Hour
-const TWO_WEEKS = ONE_WEEK * 2
+const (
+	PEM_HEADER_PRIVATE_KEY = "RSA PRIVATE KEY"
+	PEM_HEADER_PUBLIC_KEY  = "RSA PRIVATE KEY"
+	PEM_HEADER_CERTIFICATE = "CERTIFICATE"
+	KEY_BITS               = 2048
+	ONE_WEEK               = 7 * 24 * time.Hour
+	TWO_WEEKS              = ONE_WEEK * 2
+)
 
-var directory string
-var PrivateKeyFile string
-var privateKey *rsa.PrivateKey
-var CertificateFile string
-var certificate *x509.Certificate
-var parentCertFile string
-var TrustedParents = x509.NewCertPool()
-var certMutex sync.RWMutex
-var waitingForCerts = make([]chan *x509.Certificate, 0)
+var (
+	PrivateKeyFile  string               // the location of our private key on disk
+	CertificateFile string               // the location of our certificate on disk
+	TrustedParents  = x509.NewCertPool() // pool of trusted parent certificates
+)
 
 func PrivateKey() *rsa.PrivateKey {
 	return privateKey
@@ -58,8 +81,16 @@ func Certificate() (*x509.Certificate, chan *x509.Certificate) {
 	}
 }
 
+var (
+	privateKey      *rsa.PrivateKey                     // our private key
+	certificate     *x509.Certificate                   // our certificate
+	parentCertFile  string                              // our parent's certificate
+	certMutex       sync.RWMutex                        // used to synchronize access to our certificate
+	waitingForCerts = make([]chan *x509.Certificate, 0) // callbacks of parties waiting for us to get/generate a cert
+)
+
 func init() {
-	log.Print("Configuring keystore")
+	log.Print("Configuring keys")
 	ownPath := config.ConfigDir + "/keys/own/"
 	trustedPath := config.ConfigDir + "/keys/trusted/"
 	PrivateKeyFile = ownPath + "privatekey.pem"
@@ -68,13 +99,14 @@ func init() {
 	if err := os.MkdirAll(ownPath, 0755); err != nil {
 		log.Fatalf("Unable to create directory for own keys '%s': %s", ownPath, err)
 	}
-	if config.ParentAddress() != "" {
+	if !config.IsRootNode() {
 		loadParentCert()
 	}
 	loadPrivateKey()
 	loadCertificate()
 }
 
+// loadPrivateKey() loads our private key from disk and, if not found, creates it
 func loadPrivateKey() {
 	if privateKeyData, err := ioutil.ReadFile(PrivateKeyFile); err != nil {
 		log.Print("Unable to read private key file from disk, creating")
@@ -96,18 +128,7 @@ func loadPrivateKey() {
 	}
 }
 
-func loadParentCert() {
-	if certificateData, err := ioutil.ReadFile(parentCertFile); err != nil {
-		log.Fatal("Unable to read parent certificate file from disk")
-	} else {
-		if TrustedParents.AppendCertsFromPEM(certificateData) {
-			log.Print("Added trusted parent cert")
-		} else {
-			log.Fatal("Unable to add trusted parent cert")
-		}
-	}
-}
-
+// createPrivateKey() creates an RSA private key and saves it to disk
 func createPrivateKey() {
 	newPrivateKey, err := rsa.GenerateKey(rand.Reader, KEY_BITS)
 	if err != nil {
@@ -126,6 +147,24 @@ func createPrivateKey() {
 	log.Printf("Wrote private key to %s", PrivateKeyFile)
 }
 
+// loadParentCert() loads the parent cert from disk
+func loadParentCert() {
+	if certificateData, err := ioutil.ReadFile(parentCertFile); err != nil {
+		log.Fatal("Unable to read parent certificate file from disk")
+	} else {
+		if TrustedParents.AppendCertsFromPEM(certificateData) {
+			log.Print("Added trusted parent cert")
+		} else {
+			log.Fatal("Unable to add trusted parent cert")
+		}
+	}
+}
+
+/*
+loadCertificate() loads our certificate from disk, or if it doesn't exist,
+initialize it either by requesting a cert from our parent (if we have one) or
+generating a self-signed certificate (if we're a root node).
+*/
 func loadCertificate() {
 	certMutex.Lock()
 	defer certMutex.Unlock()
@@ -148,10 +187,15 @@ func loadCertificate() {
 	}
 }
 
+/*
+initCertificate() initializes our certificate either by requesting a cert from
+our parent (if we have one) or generating a self-signed certificate (if we're a
+root node).
+*/
 func initCertificate() {
 	var derBytes []byte
 	var err error
-	if config.ParentAddress() == "" {
+	if config.IsRootNode() {
 		log.Print("This is a root node, generating self-signed certificate")
 		derBytes, err = certificateForPublicKey("", &privateKey.PublicKey)
 		if err != nil {
@@ -163,8 +207,7 @@ func initCertificate() {
 		if err != nil {
 			log.Fatalf("Unable to get DER encoded bytes for public key: %s", err)
 		}
-		assertion := <-persona.GetIdentityAssertion()
-		derBytes, err = requestCertFromParent(assertion, publicKeyBytes)
+		derBytes, err = requestCertFromParent(publicKeyBytes)
 		if err != nil {
 			log.Fatalf("Unable to request certificate from parent: %s", err)
 		}
@@ -178,10 +221,9 @@ func initCertificate() {
 	}
 }
 
-// createCertificate creates a certificate from the public key's DER bytes,
-// returning DER bytes for the Certificate.  The supplied email is encrypted and
-// stored as the common name so that the issuer can associate the certificate
-// with the email address later on.
+/*
+Same as certificateForPublicKey(), with the public key supplied as the DER bytes.
+*/
 func certificateForBytes(email string, publicKeyBytes []byte) ([]byte, error) {
 	publicKey, err := x509.ParsePKIXPublicKey(publicKeyBytes)
 	if err != nil {
@@ -199,6 +241,13 @@ func certificateForBytes(email string, publicKeyBytes []byte) ([]byte, error) {
 	}
 }
 
+/*
+certificateForPublicKey() creates a certificate from the given public key,
+returning DER bytes for the Certificate.  The supplied email is encrypted and
+stored as the common name so that the issuer can associate this certificate
+with the email address later on, without exposing the email address to other
+clients.
+*/
 func certificateForPublicKey(email string, publicKey *rsa.PublicKey) ([]byte, error) {
 	encryptedEmail, err := encrypt(email)
 	if err != nil {
@@ -230,6 +279,7 @@ func certificateForPublicKey(email string, publicKey *rsa.PublicKey) ([]byte, er
 	return derBytes, nil
 }
 
+// saveCertificate() saves our certificate to disk
 func saveCertificate(derBytes []byte) {
 	certOut, err := os.Create(CertificateFile)
 	if err != nil {
@@ -243,9 +293,9 @@ func saveCertificate(derBytes []byte) {
 	if err != nil {
 		log.Fatalf("Failed to parse der bytes into Certificate: %s", err)
 	}
-
 }
 
+// encrypt() encrypts the given string and returns it as a base64 encoded string
 func encrypt(value string) (string, error) {
 	if bytes, err := rsa.EncryptPKCS1v15(rand.Reader, &(privateKey.PublicKey), []byte(value)); err != nil {
 		return "", err
