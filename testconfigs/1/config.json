@@ -1,0 +1,8 @@
+{
+   "ParentAddress": "",
+   "SignalingAddress": ":16100",
+   "LocalProxyAddress": "127.0.0.1:8080",
+   "RemoteProxyAddress": ":16200",
+   "UIAddress": "127.0.0.1:16300",
+   "Email": ""
+}
