@@ -33,6 +33,11 @@ const PATH = "/mycert"
 // identity assertion with certificate requests.
 const X_LANTERN_IDENTITY = "X-Lantern-Identity"
 
+// X_LANTERN_AUDIENCE is the header that's used to transmit the audience against
+// which a Mozilla Persona identity assertion should be validated
+// TODO: make sure that this is secure enough
+const X_LANTERN_AUDIENCE = "X-Lantern-Audience"
+
 // tr is an http transport that trusts this lantern's parent on the basis of
 // the certs stored in TrustedParents.
 var tr = &http.Transport{
@@ -61,6 +66,7 @@ func requestCertFromParent(publicKeyBytes []byte) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Add(X_LANTERN_IDENTITY, identityAssertion)
+	req.Header.Add(X_LANTERN_AUDIENCE, config.UIAddress())
 
 	// Make our request
 	resp, err := client.Do(req)
@@ -94,21 +100,25 @@ func genCert(resp http.ResponseWriter, req *http.Request) {
 	if assertion := req.Header.Get(X_LANTERN_IDENTITY); assertion == "" {
 		respond(400, fmt.Sprintf("Request didn't include a %s header", X_LANTERN_IDENTITY))
 	} else {
-		if pr, err := persona.ValidateAssertion(assertion); err != nil {
-			respond(400, "Identity failed to validate with Mozilla")
+		if audience := req.Header.Get(X_LANTERN_AUDIENCE); audience == "" {
+			respond(400, fmt.Sprintf("Request didn't include a %s header", X_LANTERN_AUDIENCE))
 		} else {
-			if publicKeyBytes, err := ioutil.ReadAll(req.Body); err != nil {
-				respond(400, "Request didn't include the public key's bytes")
+			if pr, err := persona.ValidateAssertion(assertion, audience); err != nil {
+				respond(400, "Identity failed to validate with Mozilla")
 			} else {
-				certBytes, err := certificateForBytes(pr.Email, publicKeyBytes)
-				if err != nil {
-					respond(500, fmt.Sprintf("Unable to generate certificate: %s", err))
-				}
-				resp.Header().Set("Content-Type", "application/octet-stream")
-				_, err = resp.Write(certBytes)
-				if err != nil {
-					log.Printf("Unexpected error in returning certificate bytes: %s", err)
-					resp.WriteHeader(500)
+				if publicKeyBytes, err := ioutil.ReadAll(req.Body); err != nil {
+					respond(400, "Request didn't include the public key's bytes")
+				} else {
+					certBytes, err := certificateForBytes(pr.Email, publicKeyBytes)
+					if err != nil {
+						respond(500, fmt.Sprintf("Unable to generate certificate: %s", err))
+					}
+					resp.Header().Set("Content-Type", "application/octet-stream")
+					_, err = resp.Write(certBytes)
+					if err != nil {
+						log.Printf("Unexpected error in returning certificate bytes: %s", err)
+						resp.WriteHeader(500)
+					}
 				}
 			}
 		}

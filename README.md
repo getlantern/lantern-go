@@ -43,5 +43,8 @@ bin/lantern testconfigs/1.1
 ```
 
 When starting the child for the first time, you should see a browser window open
-and prompt you to log in with Mozilla Persona.  Log in with whatever email address
-you like.
+and prompt you to log in with Mozilla Persona.  Log in with whatever email
+address you like.
+
+Once the child is running, you have a basic HTTP proxy at localhost:8080 that
+you can use to proxy HTTP traffic (HTTPS doesn't work yet). 

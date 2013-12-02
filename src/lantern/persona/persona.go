@@ -30,6 +30,7 @@ type PersonaResponse struct {
 	Audience string `json: "audience"`
 	Expires  int64  `json: "expires"`
 	Issuer   string `json: "issuer"`
+	Reason   string `json: "reason"`
 }
 
 /*
@@ -59,8 +60,8 @@ validates it using Mozilla Persona's backend.  If the identity assertion checks
 out, this returns a PersonaResponse with the data obtained from Mozilla, else
 it returns an error.
 */
-func ValidateAssertion(assertion string) (*PersonaResponse, error) {
-	data := url.Values{"assertion": {assertion}, "audience": {config.UIAddress()}}
+func ValidateAssertion(assertion string, audience string) (*PersonaResponse, error) {
+	data := url.Values{"assertion": {assertion}, "audience": {audience}}
 
 	resp, err := http.PostForm("https://verifier.login.persona.org/verify", data)
 	if err != nil {
@@ -79,7 +80,11 @@ func ValidateAssertion(assertion string) (*PersonaResponse, error) {
 		return nil, err
 	}
 
-	return pr, nil
+	if pr.Status == "okay" {
+		return pr, nil
+	} else {
+		return nil, fmt.Errorf("Assertion failed to validate: %s", pr.Reason)
+	}
 }
 
 // The channel on which we return the result of validating an assertion
@@ -199,7 +204,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Bad Request."))
 	}
 
-	pr, err := ValidateAssertion(assertion)
+	pr, err := ValidateAssertion(assertion, config.UIAddress())
 	if err != nil {
 		log.Println(err)
 		w.WriteHeader(400)
@@ -210,7 +215,6 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(400)
 			w.Write([]byte("Bad Request."))
 		} else {
-			log.Println("Identity assertion successfully verified")
 			config.SetEmail(pr.Email)
 			log.Println("Email saved")
 			w.Write(prJson)

@@ -13,26 +13,24 @@ import (
 var client *http.Client
 
 func init() {
-	cert, certChannel := keys.Certificate()
-	if cert == nil {
+	x509cert, certChannel := keys.Certificate()
+	if x509cert == nil {
 		// wait for cert
-		cert = <-certChannel
+		x509cert = <-certChannel
 	}
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			RootCAs: keys.TrustedParents,
-			Certificates: []tls.Certificate{
-				tls.Certificate{
-					PrivateKey: keys.PrivateKey(),
-					Leaf:       cert,
-				},
+	if cert, err := tls.LoadX509KeyPair(keys.CertificateFile, keys.PrivateKeyFile); err != nil {
+		log.Fatalf("Unable to load x509 key pair: %s", err)
+	} else {
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:      keys.TrustedParents,
+				Certificates: []tls.Certificate{cert},
 			},
-		},
-		DisableCompression: true,
+		}
+		client = &http.Client{Transport: tr}
+		go runLocal()
 	}
-	client = &http.Client{Transport: tr}
-	go runLocal()
 }
 
 func runLocal() {
@@ -50,6 +48,7 @@ func runLocal() {
 }
 
 func handleLocalRequest(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
 	reqOut, _ := http.NewRequest(r.Method, r.URL.String(), r.Body)
 	log.Printf("Processing local request for: %s", reqOut.URL)
 	reqOut.Header.Add("X-Original-Host", reqOut.Host)
@@ -58,15 +57,16 @@ func handleLocalRequest(w http.ResponseWriter, r *http.Request) {
 	reqOut.Host = "127.0.0.1:16200"
 	reqOut.URL.Host = "127.0.0.1:16200"
 	reqOut.URL.Scheme = "https"
-	log.Print(reqOut)
-	resp, _ := client.Do(reqOut)
-	// Write headers
-	for k, values := range resp.Header {
-		for _, v := range values {
-			w.Header().Add(k, v)
+	if resp, err := client.Do(reqOut); err != nil {
+		log.Printf("Problem submitting request to remote proxy: %s", err)
+	} else {
+		// Write headers
+		for k, values := range resp.Header {
+			for _, v := range values {
+				w.Header().Add(k, v)
+			}
 		}
+		// Write data
+		io.Copy(w, resp.Body)
 	}
-	// Write data
-	io.Copy(w, resp.Body)
-	defer r.Body.Close()
 }

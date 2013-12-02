@@ -81,6 +81,28 @@ func Certificate() (*x509.Certificate, chan *x509.Certificate) {
 	}
 }
 
+// Encrypt() encrypts the given string and returns it as a base64 encoded string
+func Encrypt(value string) (string, error) {
+	if bytes, err := rsa.EncryptPKCS1v15(rand.Reader, &(privateKey.PublicKey), []byte(value)); err != nil {
+		return "", err
+	} else {
+		return base64.StdEncoding.EncodeToString(bytes), nil
+	}
+}
+
+// Decrypt() decryptes a string value from the given base64 encoded string
+func Decrypt(value string) (string, error) {
+	if bytes, err := base64.StdEncoding.DecodeString(value); err != nil {
+		return "", err
+	} else {
+		if bytes, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, bytes); err != nil {
+			return "", err
+		} else {
+			return string(bytes), nil
+		}
+	}
+}
+
 var (
 	privateKey      *rsa.PrivateKey                     // our private key
 	certificate     *x509.Certificate                   // our certificate
@@ -185,6 +207,9 @@ func loadCertificate() {
 			log.Printf("Read certificate")
 		}
 	}
+
+	// Add ourselves to the trust store
+	TrustedParents.AddCert(certificate)
 }
 
 /*
@@ -249,12 +274,11 @@ with the email address later on, without exposing the email address to other
 clients.
 */
 func certificateForPublicKey(email string, publicKey *rsa.PublicKey) ([]byte, error) {
-	encryptedEmail, err := encrypt(email)
+	encryptedEmail, err := Encrypt(email)
 	if err != nil {
 		return nil, err
 	}
-	notBefore := time.Now()
-	notAfter := notBefore.Add(TWO_WEEKS)
+	now := time.Now()
 
 	template := x509.Certificate{
 		SerialNumber: new(big.Int).SetInt64(int64(time.Now().Nanosecond())),
@@ -262,8 +286,8 @@ func certificateForPublicKey(email string, publicKey *rsa.PublicKey) ([]byte, er
 			Organization: []string{"Lantern Network"},
 			CommonName:   encryptedEmail,
 		},
-		NotBefore: notBefore,
-		NotAfter:  notAfter,
+		NotBefore: now.Add(-1 * ONE_WEEK),
+		NotAfter:  now.Add(TWO_WEEKS),
 
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
@@ -272,7 +296,12 @@ func certificateForPublicKey(email string, publicKey *rsa.PublicKey) ([]byte, er
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 	}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, publicKey, privateKey)
+	issuerCertificate := certificate
+	if issuerCertificate == nil {
+		log.Println("We don't have a cert, self-signing using template")
+		issuerCertificate = &template
+	}
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, issuerCertificate, publicKey, privateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -292,14 +321,5 @@ func saveCertificate(derBytes []byte) {
 	certificate, err = x509.ParseCertificate(derBytes)
 	if err != nil {
 		log.Fatalf("Failed to parse der bytes into Certificate: %s", err)
-	}
-}
-
-// encrypt() encrypts the given string and returns it as a base64 encoded string
-func encrypt(value string) (string, error) {
-	if bytes, err := rsa.EncryptPKCS1v15(rand.Reader, &(privateKey.PublicKey), []byte(value)); err != nil {
-		return "", err
-	} else {
-		return base64.StdEncoding.EncodeToString(bytes), nil
 	}
 }
