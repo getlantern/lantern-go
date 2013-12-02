@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var httpClient = &http.Client{}
+			
 func init() {
 	go runRemote()
 }
@@ -51,7 +53,6 @@ func handleRemoteRequest(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// TODO: check email?  Maybe this is only needed for the signaling channel
 			log.Printf("Peer Email is: %s", email)
-			client := &http.Client{}
 			if reqOut, err := http.NewRequest(r.Method, r.URL.String(), r.Body); err != nil {
 				log.Printf("Error creating request: %s", err)
 			} else {
@@ -59,7 +60,7 @@ func handleRemoteRequest(w http.ResponseWriter, r *http.Request) {
 				reqOut.URL.Host = r.Header.Get("X-Original-Host")
 				reqOut.URL.Scheme = r.Header.Get("X-Original-Scheme")
 				log.Printf("Processing remote request for: %s", reqOut.URL)
-				if resp, err := client.Do(reqOut); err != nil {
+				if resp, err := httpClient.Do(reqOut); err != nil {
 					log.Printf("Error issuing request: %s", err)
 				} else {
 					// Write headers
