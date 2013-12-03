@@ -2,16 +2,18 @@ package proxy
 
 import (
 	"crypto/tls"
-	"io"
+	"fmt"
 	"lantern/config"
 	"lantern/keys"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
 var httpClient = &http.Client{}
-			
+
 func init() {
 	go runRemote()
 }
@@ -40,37 +42,40 @@ func runRemote() {
 	}
 }
 
-func handleRemoteRequest(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
-
-	peerCertificates := r.TLS.PeerCertificates
+func handleRemoteRequest(resp http.ResponseWriter, req *http.Request) {
+	peerCertificates := req.TLS.PeerCertificates
 	if len(peerCertificates) == 0 {
 		log.Printf("No peer certificates provided")
 	} else {
 		peerCertificate := peerCertificates[0]
-		if email, err := keys.Decrypt(peerCertificate.Subject.CommonName); err != nil {
-			log.Printf("Unable to decrypt email: %s", err)
+		if _, err := keys.Decrypt(peerCertificate.Subject.CommonName); err != nil {
+			msg := fmt.Sprintf("Unable to decrypt email: %s", err)
+			respondBadGateway(resp, req, msg)
 		} else {
 			// TODO: check email?  Maybe this is only needed for the signaling channel
-			log.Printf("Peer Email is: %s", email)
-			if reqOut, err := http.NewRequest(r.Method, r.URL.String(), r.Body); err != nil {
-				log.Printf("Error creating request: %s", err)
-			} else {
-				reqOut.Host = r.Header.Get("X-Original-Host")
-				reqOut.URL.Host = r.Header.Get("X-Original-Host")
-				reqOut.URL.Scheme = r.Header.Get("X-Original-Scheme")
-				log.Printf("Processing remote request for: %s", reqOut.URL)
-				if resp, err := httpClient.Do(reqOut); err != nil {
-					log.Printf("Error issuing request: %s", err)
+			//log.Printf("Peer Email is: %s", email)
+			host := req.Host
+			if !strings.Contains(host, ":") {
+				if req.Method == "CONNECT" {
+					host = host + ":443"
 				} else {
-					// Write headers
-					for k, values := range resp.Header {
-						for _, v := range values {
-							w.Header().Add(k, v)
-						}
+					host = host + ":80"
+				}
+			}
+			if connOut, err := net.Dial("tcp", host); err != nil {
+				msg := fmt.Sprintf("Unable to open socket to server: %s", err)
+				respondBadGateway(resp, req, msg)
+			} else {
+				if connIn, _, err := resp.(http.Hijacker).Hijack(); err != nil {
+					msg := fmt.Sprintf("Unable to access underlying connection from downstream proxy: %s", err)
+					respondBadGateway(resp, req, msg)
+				} else {
+					if req.Method == "CONNECT" {
+						connIn.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
+					} else {
+						req.Write(connOut)
 					}
-					// Write data
-					io.Copy(w, resp.Body)
+					pipe(connIn, connOut)
 				}
 			}
 		}

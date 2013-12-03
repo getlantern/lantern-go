@@ -9,7 +9,7 @@ import (
 
 func main() {
 	//runtime.GOMAXPROCS(runtime.NumCPU())
-	runtime.GOMAXPROCS(1)
+	runtime.GOMAXPROCS(4)
 	
 	// TODO: there's probably a cleaner way to do this
 	time.Sleep(9999999999999999)

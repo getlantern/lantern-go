@@ -2,7 +2,7 @@ package proxy
 
 import (
 	"crypto/tls"
-	"io"
+	"fmt"
 	"lantern/config"
 	"lantern/keys"
 	"log"
@@ -11,6 +11,7 @@ import (
 )
 
 var client *http.Client
+var tlsConfig *tls.Config
 
 func init() {
 	x509cert, certChannel := keys.Certificate()
@@ -27,6 +28,10 @@ func init() {
 				RootCAs:      keys.TrustedParents,
 				Certificates: []tls.Certificate{cert},
 			},
+		}
+		tlsConfig = &tls.Config{
+			RootCAs:      keys.TrustedParents,
+			Certificates: []tls.Certificate{cert},
 		}
 		client = &http.Client{Transport: tr}
 		go runLocal()
@@ -47,26 +52,20 @@ func runLocal() {
 	}
 }
 
-func handleLocalRequest(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
-	reqOut, _ := http.NewRequest(r.Method, r.URL.String(), r.Body)
-	log.Printf("Processing local request for: %s", reqOut.URL)
-	reqOut.Header.Add("X-Original-Host", reqOut.Host)
-	reqOut.Header.Add("X-Original-Scheme", reqOut.URL.Scheme)
+func handleLocalRequest(resp http.ResponseWriter, req *http.Request) {
 	// TODO: this needs to come from auto-discovery and statically configured fallback info
-	reqOut.Host = "127.0.0.1:16200"
-	reqOut.URL.Host = "127.0.0.1:16200"
-	reqOut.URL.Scheme = "https"
-	if resp, err := client.Do(reqOut); err != nil {
-		log.Printf("Problem submitting request to remote proxy: %s", err)
+	upstreamProxy := "127.0.0.1:16200"
+
+	if connOut, err := tls.Dial("tcp", upstreamProxy, tlsConfig); err != nil {
+		msg := fmt.Sprintf("Unable to open socket to upstream proxy: %s", err)
+		respondBadGateway(resp, req, msg)
 	} else {
-		// Write headers
-		for k, values := range resp.Header {
-			for _, v := range values {
-				w.Header().Add(k, v)
-			}
+		if connIn, _, err := resp.(http.Hijacker).Hijack(); err != nil {
+			msg := fmt.Sprintf("Unable to access underlying connection from client: %s", err)
+			respondBadGateway(resp, req, msg)
+		} else {
+			req.Write(connOut)
+			pipe(connIn, connOut)
 		}
-		// Write data
-		io.Copy(w, resp.Body)
 	}
 }
