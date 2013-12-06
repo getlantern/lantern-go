@@ -293,12 +293,13 @@ func certificateForPublicKey(email string, publicKey *rsa.PublicKey) ([]byte, er
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		IsCA:        true,
-		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 	}
 
 	issuerCertificate := certificate
 	if issuerCertificate == nil {
 		log.Println("We don't have a cert, self-signing using template")
+		// Note - for self-signed certificates, we include the host's external IP address
+		template.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
 		issuerCertificate = &template
 	}
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, issuerCertificate, publicKey, privateKey)

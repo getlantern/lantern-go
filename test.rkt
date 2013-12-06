@@ -23,25 +23,24 @@
               (close-input-port in)
               (close-output-port out))))
   ;; Watcher thread:
-  (thread (lambda ()
-            (sleep 10)
-            (custodian-shutdown-all cust))))
+  ;;(thread (lambda ()
+  ;;          (sleep 10)
+  ;;          (custodian-shutdown-all cust)))
+  )
 
 (define (handle in out)
   ;; Discard the request header (up to blank line):
   (regexp-match #rx"(\r\n|^)\r\n" in)
   ;; Send reply:
   (display "HTTP/1.0 200 OK\r\n" out)
-  (display "Content-Type: text/plain; charset=utf-8\r\n" out)
-  (display "Content-Length: 1048576\r\n" out)
   (display "\r\n" out)
   (display buf out))
 
 ;1MB of data
-(define buf (make-bytes (* 1024 1024) 100))
+(define buf (make-bytes (* 8 1024) 100))
 
 ;Start the server
-(define stop (serve 8081))
+(define stop (serve 8080))
 
 ;Sleep indefinitely
 (sleep 500000000)

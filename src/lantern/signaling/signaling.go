@@ -80,6 +80,10 @@ implications:
 - because messages like presence notifications may not make it to all intended
   recipients, they should be resent periodically.  This is a good idea anyway
   because user nodes can come on and offline all the time.
+  
+Also, because of the potential size of the network, messages should be kept
+small - this is not a mechanism for transferring large payloads, it's a
+mechanism for delivering to-the-point messages.
 
 Trust and Authentication
 ------------------------
@@ -138,22 +142,22 @@ type Message struct {
 }
 
 // Channels that receive new messages sent via the signaling bus
-var receivers = make([]chan *Message, 0)
+var receivers = make([]chan Message, 0)
 
 // Channel for sending messages to the signaling bus
-var messages = make(chan *Message)
+var messages = make(chan Message)
 
 // Channel for receiving requests to register receivers
-var registrations = make(chan chan *Message)
+var registrations = make(chan chan Message)
 
 // SendMessage sends a Message to the Lantern network.
-func SendMessage(m *Message) {
+func SendMessage(m Message) {
 	messages <- m
 }
 
 // ReceiveMessagesAt allows one to register to receive messages through the
 // supplied channel.
-func ReceiveMessagesAt(receiver chan *Message) {
+func ReceiveMessagesAt(receiver chan Message) {
 	registrations <- receiver
 }
 
