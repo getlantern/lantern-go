@@ -189,6 +189,7 @@ func (s *Server) sendPastMessages(c *ClientConnection) {
 }
 
 func (s *Server) sendAll(msg *Message) {
+	log.Printf("Sending to all: %s", msg)
 	for _, c := range s.clients {
 		c.Write(msg)
 	}

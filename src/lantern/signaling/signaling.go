@@ -80,7 +80,7 @@ implications:
 - because messages like presence notifications may not make it to all intended
   recipients, they should be resent periodically.  This is a good idea anyway
   because user nodes can come on and offline all the time.
-  
+
 Also, because of the potential size of the network, messages should be kept
 small - this is not a mechanism for transferring large payloads, it's a
 mechanism for delivering to-the-point messages.
@@ -174,8 +174,9 @@ func run() {
 		case receiver := <-registrations:
 			log.Println("Adding message receiver")
 			receivers = append(receivers, receiver)
-		case m := <-messages:
-			log.Printf("Dispatching message: %s", m)
+		case msg := <-messages:
+			log.Printf("Dispatching message: %s", msg)
+			sendToParent(msg)
 		}
 	}
 }
@@ -187,6 +188,8 @@ func startWebChannel() {
 		WriteTimeout: 10 * time.Second,
 	}
 
+	wsServer := NewServer()
+	wsServer.Listen()
 	if err := server.ListenAndServeTLS(keys.CertificateFile, keys.PrivateKeyFile); err != nil {
 		log.Fatalf("Unable to start signaling websocket server: %s", err)
 	}
