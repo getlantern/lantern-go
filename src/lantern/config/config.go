@@ -96,6 +96,25 @@ func SetRemoteProxyAddress(remoteProxyAddress string) {
 	save()
 }
 
+/*
+StaticProxyAddresses() returns the host:port combinations at which this lantern
+instance can find proxies with static ips (helpful for bootstrapping).
+
+An empty value means that there is no static proxy known.
+*/
+func StaticProxyAddresses() []string {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+	return config.StaticProxyAddresses
+}
+
+func SetStaticProxyAddresses(staticProxyAddresses []string) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	config.StaticProxyAddresses = staticProxyAddresses
+	save()
+}
+
 // UIAddress() returns the host:port
 func UIAddress() string {
 	configMutex.RLock()
@@ -128,12 +147,13 @@ func SetEmail(email string) {
 // configData defines the data structure of the config data as it is saved on
 // disk (in JSON).
 type configData struct {
-	ParentAddress      string // the host:port of our parent node (or "" if we're a root)
-	SignalingAddress   string // the host:port at which we will listen for signaling connections from our children
-	LocalProxyAddress  string // the host:port at which we will listen for local proxy connections (e.g. from the browser)
-	RemoteProxyAddress string // the host:port at which we will listen for remote proxy connections from peers
-	UIAddress          string // the host:port at which the UI's backend listens
-	Email              string // the email address of the user under which this node is running (leave "" for server nodes)
+	ParentAddress        string   // the host:port of our parent node (or "" if we're a root)
+	SignalingAddress     string   // the host:port at which we will listen for signaling connections from our children
+	LocalProxyAddress    string   // the host:port at which we will listen for local proxy connections (e.g. from the browser)
+	RemoteProxyAddress   string   // the host:port at which we will listen for remote proxy connections from peers
+	StaticProxyAddresses []string // array of host:port for known static proxies
+	UIAddress            string   // the host:port at which the UI's backend listens
+	Email                string   // the email address of the user under which this node is running (leave "" for server nodes)
 }
 
 var (
@@ -143,11 +163,12 @@ var (
 	configFile = ConfigDir + "/config.json"
 	// config is initialized with a set of default values
 	config = &configData{
-		ParentAddress:      "",
-		SignalingAddress:   ":16100",
-		LocalProxyAddress:  "127.0.0.1:8080",
-		RemoteProxyAddress: ":16200",
-		UIAddress:          "127.0.0.1:16300"}
+		ParentAddress:        "",
+		SignalingAddress:     ":16100",
+		LocalProxyAddress:    "127.0.0.1:8080",
+		RemoteProxyAddress:   ":16200",
+		StaticProxyAddresses: []string{},
+		UIAddress:            "127.0.0.1:16300"}
 	// configMutex is used to synchronize concurrent reads/writes of config properties
 	configMutex sync.RWMutex
 	// saveChannel is used to queue up requests to save the config back to disk

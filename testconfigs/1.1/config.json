@@ -3,6 +3,9 @@
    "SignalingAddress": ":17100",
    "LocalProxyAddress": "127.0.0.1:8080",
    "RemoteProxyAddress": ":17200",
+   "StaticProxyAddresses": [
+      "127.0.0.1:16200"
+   ],
    "UIAddress": "127.0.0.1:17300",
    "Email": ""
 }

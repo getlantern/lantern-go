@@ -54,7 +54,7 @@ func runLocal() {
 
 func handleLocalRequest(resp http.ResponseWriter, req *http.Request) {
 	// TODO: this needs to come from auto-discovery and statically configured fallback info
-	upstreamProxy := "127.0.0.1:16200"
+	upstreamProxy := config.StaticProxyAddresses()[0]
 
 	if connOut, err := tls.Dial("tcp", upstreamProxy, tlsConfig); err != nil {
 		msg := fmt.Sprintf("Unable to open socket to upstream proxy: %s", err)
