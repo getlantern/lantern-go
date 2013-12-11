@@ -7,7 +7,6 @@ import (
 	"lantern/config"
 	"lantern/keys"
 	"log"
-	"net/http"
 	"net/url"
 )
 

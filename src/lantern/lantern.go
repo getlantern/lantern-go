@@ -12,7 +12,7 @@ func main() {
 	//runtime.GOMAXPROCS(runtime.NumCPU())
 	runtime.GOMAXPROCS(4)
 
-	if !config.IsRootNode() {
+	if false && !config.IsRootNode() {
 		go func() {
 			signaling.SendMessage(signaling.Message{
 				R: "ox@getlantern.org",
