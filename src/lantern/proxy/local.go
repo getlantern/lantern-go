@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-var client *http.Client
 var tlsConfig *tls.Config
 
 func init() {
@@ -23,17 +22,11 @@ func init() {
 	if cert, err := tls.LoadX509KeyPair(keys.CertificateFile, keys.PrivateKeyFile); err != nil {
 		log.Fatalf("Unable to load x509 key pair: %s", err)
 	} else {
-		tr := &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:      keys.TrustedParents,
-				Certificates: []tls.Certificate{cert},
-			},
-		}
 		tlsConfig = &tls.Config{
 			RootCAs:      keys.TrustedParents,
 			Certificates: []tls.Certificate{cert},
+			InsecureSkipVerify: true, // TODO: disable this to get security back
 		}
-		client = &http.Client{Transport: tr}
 		go runLocal()
 	}
 }

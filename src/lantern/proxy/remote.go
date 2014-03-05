@@ -54,14 +54,7 @@ func handleRemoteRequest(resp http.ResponseWriter, req *http.Request) {
 		} else {
 			// TODO: check email?  Maybe this is only needed for the signaling channel
 			//log.Printf("Peer Email is: %s", email)
-			host := req.Host
-			if !strings.Contains(host, ":") {
-				if req.Method == "CONNECT" {
-					host = host + ":443"
-				} else {
-					host = host + ":80"
-				}
-			}
+			host := hostIncludingPort(req)
 			if connOut, err := net.Dial("tcp", host); err != nil {
 				msg := fmt.Sprintf("Unable to open socket to server: %s", err)
 				respondBadGateway(resp, req, msg)
@@ -80,4 +73,16 @@ func handleRemoteRequest(resp http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
+}
+
+func hostIncludingPort(req *http.Request) (host string) {
+	host = req.Host
+	if !strings.Contains(host, ":") {
+		if req.Method == "CONNECT" {
+			host = host + ":443"
+		} else {
+			host = host + ":80"
+		}
+	}
+	return
 }

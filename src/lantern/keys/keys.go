@@ -232,7 +232,7 @@ func initCertificate() {
 		if err != nil {
 			log.Fatalf("Unable to get DER encoded bytes for public key: %s", err)
 		}
-		derBytes, err = requestCertFromParent(publicKeyBytes)
+		_, err = requestCertFromParent(publicKeyBytes)
 		if err != nil {
 			log.Fatalf("Unable to request certificate from parent: %s", err)
 		}
@@ -292,7 +292,7 @@ func certificateForPublicKey(email string, publicKey *rsa.PublicKey) ([]byte, er
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IsCA:        true,
+		IsCA: true,
 	}
 
 	issuerCertificate := certificate

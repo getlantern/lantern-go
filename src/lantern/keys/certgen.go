@@ -22,6 +22,7 @@ import (
 	"io/ioutil"
 	"lantern/config"
 	"lantern/persona"
+//	"lantern/signaling"
 	"log"
 	"net/http"
 )
@@ -54,7 +55,7 @@ func init() {
 
 // requestCertFromParent() requests a certificate from the parent node for the
 // given public key.
-func requestCertFromParent(publicKeyBytes []byte) ([]byte, error) {
+func requestCertFromParent(publicKeyBytes []byte) (chan []byte, error) {
 	// Get our identity assertion (this blocks until the UI flow for getting
 	// the identity assertion has finished)
 	identityAssertion := <-persona.GetIdentityAssertion()
@@ -77,11 +78,11 @@ func requestCertFromParent(publicKeyBytes []byte) ([]byte, error) {
 		if resp.StatusCode != 200 {
 			return nil, fmt.Errorf("http request failed: %s %s", resp.StatusCode, resp.Status)
 		}
-		bytes, err := ioutil.ReadAll(resp.Body)
+		_, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return nil, err
 		}
-		return bytes, nil
+		return nil, nil
 	}
 }
 

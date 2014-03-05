@@ -1,6 +1,8 @@
 /*
 Package signaling encapsulates the signaling channel for lantern.
 
+TODO: implement pluggable signaling transports?
+
 Lantern nodes are organized into a tree which is responsible for passing
 presence notifications to the appropriate parties.  The tree consists of two
 different kinds of nodes, master nodes and user nodes.
@@ -108,89 +110,145 @@ All of the certificate management stuff is implemented by package
 lantern/keystore.
 
 All of the Mozilla Persona stuff is implemented by the package lantern/persona.
-
-Communication Protocol
-----------------------
-Nodes connect to each other via websockets.  Every master node maintains an
-https websocket endpoint at a static host:port.  Child nodes connect to this
-endpoint.  All messaging, both for master and user nodes, uses this websocket
-channel.
-
-Messages are expected to be small (no more than 1KB).
 */
 package signaling
 
 import (
+//	"crypto/tls"
+	"crypto/x509"
+//	"encoding/json"
+//	"github.com/oxtoacart/ftcp"
 	"lantern/config"
-	"lantern/keys"
 	"log"
-	"net/http"
-	"time"
 )
 
 type MessageType uint8
 
 const (
-	TYPE_REGISTRATION   = 1 // registration of a new email address
-	TYPE_DEREGISTRATION = 2 // deregistration of an email address
+	TYPE_CERT_REQUEST   = 1 // request a cert
+	TYPE_CERT_RESPONSE  = 2 // response to a request for a cert
+	TYPE_REGISTRATION   = 3 // registration of a new email address
+	TYPE_DEREGISTRATION = 4 // deregistration of an email address
 )
 
 type Message struct {
-	R string      // the recipient email address
-	T MessageType // the type of message
-	D string      // the data payload (might be JSON encoded or not)
+	Recp   string      // the recipient email address
+	Type   MessageType // the type of message
+	Sender string      // the sender of the message based on its certificate
 }
 
-// Channels that receive new messages sent via the signaling bus
-var receivers = make([]chan Message, 0)
+type MessageBus interface {
+	Send(m Message)
 
-// Channel for sending messages to the signaling bus
-var messages = make(chan Message)
+	RecvAt(receiver chan Message)
+}
 
-// Channel for receiving requests to register receivers
-var registrations = make(chan chan Message)
+var (
+	// Channels that receive new messages sent via the signaling bus
+	receivers = make([]chan Message, 0)
 
-// SendMessage sends a Message to the Lantern network.
-func SendMessage(m Message) {
+	// Channel for sending messages to the signaling bus
+	messages = make(chan Message)
+
+	// Channel for receiving requests to register receivers
+	registrations = make(chan chan Message)
+
+	// Channel for receiving restart requests
+	restart = make(chan Message)
+)
+
+/*
+Send sends a Message to the Lantern network.
+*/
+func Send(m Message) {
 	messages <- m
 }
 
-// ReceiveMessagesAt allows one to register to receive messages through the
-// supplied channel.
-func ReceiveMessagesAt(receiver chan Message) {
+/*
+RecvAt allows one to register to receive messages through the
+supplied channel.
+*/
+func RecvAt(receiver chan Message) {
 	registrations <- receiver
 }
 
-func init() {
-	go run()
-	go startWebChannel()
+/*
+Start starts the signaling channel.
+*/
+func Start(rootCAs *x509.CertPool) {
+	go connect(rootCAs)
+	go listen(rootCAs)
 	log.Printf("Listening for signaling connections at: %s", config.SignalingAddress())
 }
 
-// Goroutine for processing registrations, message sends and message receives
-func run() {
-	for {
-		select {
-		case receiver := <-registrations:
-			log.Println("Adding message receiver")
-			receivers = append(receivers, receiver)
-		case msg := <-messages:
-			log.Printf("Dispatching message: %s", msg)
-			sendToParent(msg)
-		}
-	}
+/*
+connect connects to our parent.
+*/
+func connect(rootCAs *x509.CertPool) {
+//	tlsConfig := &tls.Config{RootCAs: rootCAs}
+//	if conn, err := ftcp.DialTLS(config.ParentAddress(), tlsConfig); err != nil {
+//		log.Fatalf("Unable to connect to parent {}: {}", config.ParentAddress(), err)
+//	} else {
+//		go func() {
+//			for {
+//				select {
+//				case msg := <-messages:
+//					if bytes, err := json.Marshal(msg); err != nil {
+//						log.Printf("Unable to write message to parent: {}", err)
+//					} else {
+//						if err := conn.Write(bytes); err != nil {
+//							log.Printf("Unable to write message to parent: {}", err)
+//						}
+//					}
+//				}
+//			}
+//		}()
+//	}
 }
 
-func startWebChannel() {
-	server := &http.Server{
-		Addr:         config.SignalingAddress(),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-
-	wsServer := NewServer()
-	wsServer.Listen()
-	if err := server.ListenAndServeTLS(keys.CertificateFile, keys.PrivateKeyFile); err != nil {
-		log.Fatalf("Unable to start signaling websocket server: %s", err)
-	}
+/*
+listen listens for new connections from clients
+*/
+func listen(rootCAs *x509.CertPool) {
+//	tlsConfig := &tls.Config{
+//		ClientCAs:  rootCAs,
+//		ClientAuth: tls.RequestClientCert,
+//	}
+//	listener, err := ftcp.ListenTLS(config.SignalingAddress(), tlsConfig)
+//	if err != nil {
+//		log.Fatalf("Unable to listen for connections at {}: {}", config.SignalingAddress(), err)
+//	}
+//
+//	newConns := make(chan *ftcp.Conn)
+//
+//	// accept connections
+//	go func() {
+//		conn, err := listener.Accept()
+//		if err == nil {
+//			newConns <- conn
+//		}
+//	}()
+//
+//	for {
+//		select {
+//		case conn := <-newConns:
+//			// Continuously read from client connection
+//			go func() {
+//				defer conn.Close()
+//				for {
+//					if wrappedMsg, err := conn.Read(); err == nil {
+//						msg := Message{}
+//						json.Unmarshal(wrappedMsg.Data, &msg)
+//						for _, receiver := range receivers {
+//							receiver <- msg
+//						}
+//					} else {
+//						return
+//					}
+//				}
+//			}()
+//		case receiver := <-registrations:
+//			receivers = append(receivers, receiver)
+//		}
+//	}
 }
